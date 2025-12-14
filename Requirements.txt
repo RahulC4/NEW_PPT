@@ -1,0 +1,23 @@
+# Core
+python-dotenv>=1.0.1
+requests>=2.31.0
+
+# Azure OpenAI
+openai>=1.14.0
+
+# PowerPoint handling
+python-pptx>=0.6.23
+Pillow>=10.1.0
+
+# Vector DB
+chromadb>=0.4.24
+
+# Azure Blob Storage
+azure-storage-blob>=12.19.0
+
+# Streamlit UI
+streamlit>=1.31.0
+
+# Utilities
+pydantic>=2.5.3
+tqdm>=4.66.1
