@@ -3,7 +3,7 @@
 import os
 import streamlit as st
 from utils import text_client, get_env, logger
-from search_utils import collection  # 🔴 DIRECT CHROMA ACCESS
+from search_utils import collection  # ✅ direct Chroma access
 
 st.set_page_config(page_title="3 - Q&A", layout="wide")
 st.title("3 — Q&A (Slide-Specific Questions)")
@@ -36,30 +36,23 @@ def detect_slide_type(slide):
     return "content"
 
 
-def get_slide_chroma_text(slide, max_chars=1200):
-    """
-    🔴 CRITICAL FIX:
-    Retrieve ONLY this slide's indexed content using metadata filters
-    """
-    ppt_name = slide.get("ppt_blob")
+def get_exact_slide_text(slide, max_chars=1200):
     slide_id = slide.get("slide_id")
 
-    if not ppt_name or not slide_id:
+    if not slide_id:
         return ""
 
     try:
-        res = collection.query(
-            n_results=5,
+        res = collection.get(
             where={
-                "ppt_name": ppt_name,
                 "slide_id": slide_id
             }
         )
-    except Exception as e:
-        logger.exception("Chroma filtered query failed")
+    except Exception:
+        logger.exception("Exact Chroma get() failed")
         return ""
 
-    docs = res.get("documents", [[]])[0]
+    docs = res.get("documents", [])
     if not docs:
         return ""
 
@@ -67,8 +60,11 @@ def get_slide_chroma_text(slide, max_chars=1200):
     return text[:max_chars]
 
 
-def generate_llm_questions(slide, max_q=3):
-    context = get_slide_chroma_text(slide)
+def chroma_questions(slide, max_q=3):
+    """
+    Generate up to max_q questions from EXACT slide text
+    """
+    context = get_exact_slide_text(slide)
 
     if not context:
         return []
@@ -84,10 +80,12 @@ Generate up to {max_q} diverse, non-overlapping questions
 to help customize this slide.
 
 Rules:
-- Each question must focus on a different aspect
-- Avoid objectives and key points
+- Each question must focus on a DIFFERENT aspect
+  (e.g., scope, metrics, assumptions, risks, outcomes)
+- Avoid repeating objectives or key points
 - No generic questions
-- Plain numbered list only
+- Plain numbered text only
+- One question per line
 """
 
     resp = text_client.chat.completions.create(
@@ -116,7 +114,7 @@ st.session_state.setdefault("questions_by_slide", {})
 st.session_state.setdefault("answers_by_slide", {})
 
 # ------------------------------------------------------------------
-# Generate questions per slide
+# Generate questions per slide (ONCE)
 # ------------------------------------------------------------------
 for slide in slides:
     slide_id = slide["slide_id"]
@@ -144,10 +142,10 @@ for slide in slides:
         questions.append("What is the objective of this slide?")
 
         try:
-            llm_qs = generate_llm_questions(slide, max_q=3)
+            llm_qs = chroma_questions(slide, max_q=3)
             questions.extend(llm_qs)
         except Exception:
-            logger.exception("LLM question generation failed")
+            logger.exception("Exact-slide question generation failed")
 
         questions.append("What are the key points to be added to this slide?")
 
@@ -159,16 +157,16 @@ for slide in slides:
 # ------------------------------------------------------------------
 for idx, slide in enumerate(slides):
     slide_id = slide["slide_id"]
+    slide_title = slide.get("title") or "Slide"
     questions = st.session_state["questions_by_slide"].get(slide_id, [])
-
-    # ✅ TITLE FROM EXTRACTION ONLY (SOURCE OF TRUTH)
-    slide_title = slide.get("title") or "Untitled Slide"
 
     st.markdown("---")
     st.subheader(f"Slide {idx + 1}: {slide_title}")
 
     if slide.get("png_path") and os.path.exists(slide["png_path"]):
         st.image(slide["png_path"], width=400)
+
+    st.session_state["answers_by_slide"].setdefault(slide_id, {})
 
     for i, q in enumerate(questions):
         ans_key = f"{slide_id}_q{i}"
@@ -203,4 +201,5 @@ with col2:
             "selected_slides": slides,
             "answers_map": answers_for_generator
         }
+
         st.switch_page("pages/4_Generate_PPT.py")
