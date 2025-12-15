@@ -88,3 +88,27 @@ Rules:
     except Exception as e:
         logger.exception("LLM failed while generating questions from exact slide text")
         return []
+
+
+
+
+def get_exact_slide_text(slide, max_chars=1200):
+    slide_id = slide.get("slide_id")
+    if not slide_id:
+        return ""
+
+    try:
+        res = collection.query(
+            query_texts=[""],               # dummy query
+            n_results=1,
+            where={"slide_id": slide_id}
+        )
+    except Exception:
+        logger.exception("Exact slide query failed")
+        return ""
+
+    docs = res.get("documents", [[]])[0]
+    if not docs:
+        return ""
+
+    return docs[0][:max_chars]
