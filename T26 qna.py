@@ -36,33 +36,46 @@ def detect_slide_type(slide):
     return "content"
 
 
+
 def get_exact_slide_text(slide, max_chars=1200):
     """
-    Fetch exact slide text using ppt_name + slide_index
+    Fetch exact slide text using ppt_blob + slide_index
     (NO embeddings, NO semantic search)
     """
-    ppt_name = slide.get("ppt_name")
-    slide_index = str(slide.get("slide_index"))
 
-    if not ppt_name or slide_index is None:
+    ppt_name = slide.get("ppt_blob")
+    slide_index = slide.get("slide_index")
+
+    if ppt_name is None or slide_index is None:
+        logger.warning("[QNA] Missing ppt_blob or slide_index")
         return ""
 
     try:
+        logger.info(
+            f"[QNA] Fetching slide from Chroma | ppt={ppt_name} | index={slide_index}"
+        )
+
         res = collection.get(
             where={
-                "ppt_name": ppt_name,
-                "slide_index": slide_index
+                "$and": [
+                    {"ppt_name": ppt_name},
+                    {"slide_index": slide_index}
+                ]
             }
         )
+
+        docs = res.get("documents", [])
+        logger.info(f"[QNA] Retrieved {len(docs)} docs from Chroma")
+
+        if not docs:
+            return ""
+
+        return "\n".join(docs)[:max_chars]
+
     except Exception:
-        logger.exception("Chroma get() failed")
+        logger.exception("[QNA] Chroma get() failed")
         return ""
 
-    docs = res.get("documents", [])
-    if not docs:
-        return ""
-
-    return "\n".join(docs)[:max_chars]
 
 
 
