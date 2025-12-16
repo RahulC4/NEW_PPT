@@ -36,3 +36,23 @@ def get_exact_slide_text(slide, max_chars=1200):
     except Exception:
         logger.exception("[QNA] Chroma get() failed")
         return ""
+
+
+
+
+
+
+
+for idx, slide in enumerate(slides):
+    slide_id = slide["slide_id"]
+
+    # ✅ Prefer actual PPT title extracted from slide
+    slide_title = (
+        (slide.get("title") or "").strip()
+        or f"Slide {idx + 1}"
+    )
+
+    questions = st.session_state["questions_by_slide"].get(slide_id, [])
+
+    st.markdown("---")
+    st.subheader(f"Slide {idx + 1}: {slide_title}")
