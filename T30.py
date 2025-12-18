@@ -18,3 +18,12 @@ payload["answers_by_slide"] = (
     or st.session_state.get("answers_by_slide")
     or {}
 )
+
+
+payload["selected_slide_structs"] = (
+    payload.get("selected_slide_structs")
+    or [
+        s for s in st.session_state.get("slides_catalog", [])
+        if s.get("slide_id") in st.session_state.get("selected_slides", [])
+    ]
+)
