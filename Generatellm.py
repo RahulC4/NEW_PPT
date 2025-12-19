@@ -1,12 +1,15 @@
-# # =============================================
-# generate_ppt_llm.py   
+# =============================================
+# generate_ppt_llm.py
 # =============================================
 import os
 import uuid
 from pptx import Presentation
 from pptx.util import Pt
 from utils import text_client, get_env, logger
-
+ 
+# ------------------------------------------------------------
+# LLM BULLET GENERATOR (unchanged)
+# ------------------------------------------------------------
 def llm_synthesize_slide(user_answers, global_prompt):
    qa_text = "\n".join(
        f"Q: {q}\nA: {a}"
@@ -41,15 +44,15 @@ Title: <title>
    bullets = []
    for ln in lines:
        if ln.lower().startswith("title"):
-           title = ln.split(":",1)[1].strip()
+           title = ln.split(":", 1)[1].strip()
        elif ln.startswith("-"):
            bullets.append(ln[1:].strip())
    if not bullets:
        bullets = ["Content could not be generated"]
    return title, bullets
-
+ 
 # ============================================================
-#               MAIN PPT GENERATOR
+# MAIN PPT GENERATOR
 # ============================================================
 def generate_presentation(payload):
    slides = payload.get("slides", [])
@@ -57,39 +60,48 @@ def generate_presentation(payload):
    if not slides:
        raise ValueError("No slides provided")
    prs = Presentation()
-   
    global_prompt = "professional business presentation"
-
+ 
    # ---------------------------------------------------
-   # LOOP THROUGH ALL USER SLIDES
+   # LOOP THROUGH ALL USER SELECTED SLIDES
    # ---------------------------------------------------
    for slide in slides:
        slide_idx = str(slide["slide_index"])
        slide_title = slide["slide_title"]
        user_answers = answers_map.get(slide_idx, {})
+       # create slide object
        ppt_slide = prs.slides.add_slide(prs.slide_layouts[1])
-
-       # ---------------------------------------------------
-       # Special Case: User answered "presentation title" Q
-       # ---------------------------------------------------
+ 
+       # -----------------------------------------------------------
+       # CASE 1 — USER PROVIDED "TITLE INPUT"
+       # -----------------------------------------------------------
        if user_answers.get("What should be the title of this presentation?"):
-           user_title = user_answers["What should be the title of this presentation?"].strip()
+           user_title = user_answers[
+               "What should be the title of this presentation?"
+           ].strip()
            ppt_slide.shapes.title.text = user_title
-           continue     # no bullets here
-
-       # ---------------------------------------------------
-       # Case 2 → Normal content slide
-       # ---------------------------------------------------
+           continue    # no bullets
+ 
+       # -----------------------------------------------------------
+       # CASE 2 — USER SKIPPED ANSWERS
+       # => SHOW ONLY TITLE, NO BULLETS
+       # -----------------------------------------------------------
+       valid_answers_exist = any(v.strip() for v in user_answers.values())
+       if not valid_answers_exist:
+           ppt_slide.shapes.title.text = slide_title
+           continue
+ 
+       # -----------------------------------------------------------
+       # CASE 3 — NORMAL CONTENT GENERATION
+       # -----------------------------------------------------------
        try:
            llm_title, bullets = llm_synthesize_slide(
                user_answers,
                global_prompt
            )
-       except:
+       except Exception:
            logger.exception("LLM failed")
-           llm_title = slide_title
            bullets = ["Content could not be generated"]
-
        ppt_slide.shapes.title.text = slide_title
        body = ppt_slide.placeholders[1].text_frame
        body.clear()
@@ -98,16 +110,18 @@ def generate_presentation(payload):
            para.text = b
            para.level = 0
            para.font.size = Pt(18)
-
-   # closing slide
+ 
+   # -----------------------------------------------------------
+   # OPTIONAL ENDING SLIDE
+   # -----------------------------------------------------------
    thanks = prs.slides.add_slide(prs.slide_layouts[1])
    thanks.shapes.title.text = "Thank You"
-   thanks.placeholders[1].text = "Questions?"
-
+   #thanks.placeholders[1].text = "Questions?"
+ 
+   # -----------------------------------------------------------
+   # SAVE OUT FILE
+   # -----------------------------------------------------------
    os.makedirs("generated", exist_ok=True)
    out_path = f"generated/ppt_{uuid.uuid4().hex[:6]}.pptx"
    prs.save(out_path)
    return out_path
-
-
-
