@@ -1,8 +1,11 @@
 from generate_ppt_llm import llm_synthesize_slide
 
+# ---------------------------------------------------
+# INIT PREVIEW STATE (LLM GENERATED CONTENT – ONCE PER SELECTION)
+# ---------------------------------------------------
 st.session_state.setdefault("preview_slides", [])
 
-# 🔴 IMPORTANT: reset preview if slide selection changed
+# 🔑 Reset preview if slide selection changed
 current_slide_ids = [str(s["slide_index"]) for s in slides]
 prev_ids = st.session_state.get("_preview_slide_ids")
 
@@ -18,7 +21,7 @@ if not st.session_state["preview_slides"]:
         slide_idx = str(s["slide_index"])
         user_answers = answers_map.get(slide_idx, {})
 
-        # ✅ ALWAYS USE LLM
+        # ✅ ALWAYS GENERATE FROM LLM (never raw Q&A)
         try:
             llm_title, llm_bullets = llm_synthesize_slide(
                 user_answers=user_answers,
