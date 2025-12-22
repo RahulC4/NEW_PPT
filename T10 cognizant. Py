@@ -1,0 +1,180 @@
+# ============================================================
+# generate_ppt_cognizant.py
+# Cognizant Template | Preview-driven | Image-aware
+# ============================================================
+
+import os
+import uuid
+import tempfile
+import base64
+
+from pptx import Presentation
+from pptx.util import Inches, Pt
+from pptx.dml.color import RGBColor
+
+from utils import (
+    logger,
+    get_env,
+    image_client,
+)
+
+IMAGE_MODEL = get_env("IMAGE_MODEL", required=True)
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
+COGNIZANT_TEMPLATE = os.path.join(TEMPLATES_DIR, "Cognizant.pptx")
+
+
+# ------------------------------------------------------------
+# IMAGE GENERATION
+# ------------------------------------------------------------
+def generate_visual_image(prompt: str):
+    try:
+        resp = image_client.images.generate(
+            model=IMAGE_MODEL,
+            prompt=prompt + " Professional minimal corporate illustration. No text.",
+            size="1024x1024",
+        )
+
+        b64 = getattr(resp.data[0], "b64_json", None)
+        if not b64:
+            return None
+
+        img_bytes = base64.b64decode(b64)
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+        tmp.write(img_bytes)
+        tmp.close()
+        return tmp.name
+
+    except Exception:
+        logger.exception("Cognizant image generation failed")
+        return None
+
+
+def add_image_right(slide, body_shape, img_path):
+    try:
+        slide.shapes.add_picture(
+            img_path,
+            left=body_shape.left + body_shape.width + Inches(0.2),
+            top=body_shape.top,
+            width=Inches(3),
+        )
+    except Exception:
+        logger.exception("Cognizant image placement failed")
+
+
+# ------------------------------------------------------------
+# GENERIC HELPERS (MATCH CORPORATE STYLE)
+# ------------------------------------------------------------
+def delete_slide(prs, index):
+    slide_id = prs.slides._sldIdLst[index].rId
+    prs.part.drop_rel(slide_id)
+    del prs.slides._sldIdLst[index]
+
+
+def set_title(slide, text):
+    if slide.shapes.title:
+        slide.shapes.title.text = text
+    else:
+        tb = slide.shapes.add_textbox(
+            left=Inches(1),
+            top=Inches(1),
+            width=prs.slide_width - Inches(2),
+            height=Pt(60),
+        )
+        p = tb.text_frame.paragraphs[0]
+        p.text = text
+        p.font.size = Pt(32)
+        p.font.bold = True
+
+
+def add_bullets(slide, bullets, image_required=False):
+    width = prs.slide_width - Inches(5) if image_required else prs.slide_width - Inches(2)
+
+    tb = slide.shapes.add_textbox(
+        left=Inches(1),
+        top=Inches(2),
+        width=width,
+        height=prs.slide_height - Inches(3),
+    )
+
+    tf = tb.text_frame
+    tf.word_wrap = True
+    tf.clear()
+
+    for b in bullets:
+        p = tf.add_paragraph()
+        p.text = b
+        p.level = 0
+        p.font.size = Pt(20)
+
+    return tb
+
+
+# ------------------------------------------------------------
+# MAIN COGNIZANT BUILDER (CORPORATE PARITY)
+# ------------------------------------------------------------
+def generate_presentation_cognizant(payload, image_required=True):
+    """
+    Preview-driven Cognizant PPT generation
+    """
+
+    slides = payload.get("slides")
+    if not slides:
+        raise ValueError("No preview slides found")
+
+    prs = Presentation(COGNIZANT_TEMPLATE)
+
+    # --------------------------------------------------------
+    # Capture layouts BEFORE deletion
+    # --------------------------------------------------------
+    title_layout = prs.slides[0].slide_layout
+    content_layout = prs.slides[1].slide_layout
+    thankyou_layout = prs.slides[-1].slide_layout
+
+    # --------------------------------------------------------
+    # DELETE ALL TEMPLATE SLIDES
+    # --------------------------------------------------------
+    for i in reversed(range(len(prs.slides))):
+        delete_slide(prs, i)
+
+    # --------------------------------------------------------
+    # 1️⃣ TITLE SLIDE (FROM PREVIEW[0])
+    # --------------------------------------------------------
+    title_slide_data = slides[0]
+    title_slide = prs.slides.add_slide(title_layout)
+    set_title(title_slide, title_slide_data.get("title", ""))
+
+    # --------------------------------------------------------
+    # 2️⃣ CONTENT SLIDES
+    # --------------------------------------------------------
+    for slide_data in slides[1:]:
+        slide = prs.slides.add_slide(content_layout)
+
+        title = slide_data.get("title", "")
+        bullets = [
+            b.strip()
+            for b in (slide_data.get("bullets") or [])
+            if isinstance(b, str) and b.strip()
+        ]
+
+        set_title(slide, title)
+        body = add_bullets(slide, bullets, image_required=image_required)
+
+        if image_required:
+            img = generate_visual_image(title)
+            if img:
+                add_image_right(slide, body, img)
+
+    # --------------------------------------------------------
+    # 3️⃣ THANK YOU SLIDE (FIXED TEMPLATE)
+    # --------------------------------------------------------
+    prs.slides.add_slide(thankyou_layout)
+
+    # --------------------------------------------------------
+    # SAVE
+    # --------------------------------------------------------
+    os.makedirs("generated", exist_ok=True)
+    out_path = f"generated/cognizant_{uuid.uuid4().hex[:6]}.pptx"
+    prs.save(out_path)
+    return out_path
