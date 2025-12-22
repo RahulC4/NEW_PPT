@@ -1,3 +1,19 @@
+# -----------------------------
+# Theme selection
+# -----------------------------
+theme = st.selectbox(
+    "Select Presentation Theme",
+    ["auto", "cognizant"],
+    index=0
+)
+
+st.session_state["ppt_theme"] = theme
+
+
+
+
+
+
 st.markdown(
     """
     <script>
