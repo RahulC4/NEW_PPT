@@ -88,7 +88,7 @@ def set_title(slide, text):
         p.font.bold = True
 
 
-def add_bullets(slide, bullets, image_required=False):
+def add_bullets(prs, slide, bullets, image_required=False):
     width = prs.slide_width - Inches(5) if image_required else prs.slide_width - Inches(2)
 
     tb = slide.shapes.add_textbox(
@@ -159,7 +159,7 @@ def generate_presentation_cognizant(payload, image_required=True):
         ]
 
         set_title(slide, title)
-        body = add_bullets(slide, bullets, image_required=image_required)
+        body = add_bullets(prs,slide, bullets, image_required=image_required)
 
         if image_required:
             img = generate_visual_image(title)
