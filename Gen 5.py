@@ -3,7 +3,7 @@ import streamlit as st
 from utils import logger
 
 st.set_page_config(page_title="5 - Generate PPT", layout="wide")
-st.title("5 — Generate & Download")
+st.title("Step 5 — Generate Your Presentation")
 
 payload = st.session_state.get("generation_payload")
 theme = st.session_state.get("ppt_theme", "auto")
