@@ -1,14 +1,16 @@
 # ============================================================
 # generate_ppt_cognizant.py
-# Cognizant Template | Preview-driven | TEXT-ONLY (No Images)
+# Cognizant Template | Preview-driven | TEXT-ONLY
+# Uses 4th slide as CONTENT MASTER (REAL DESIGN COPY)
 # ============================================================
 
 import os
 import uuid
 from datetime import datetime
+from copy import deepcopy
 
 from pptx import Presentation
-from pptx.util import Inches, Pt
+from pptx.util import Pt
 from pptx.dml.color import RGBColor
 
 from utils import logger
@@ -20,25 +22,37 @@ COGNIZANT_TEMPLATE = os.path.join(TEMPLATES_DIR, "Cognizant.pptx")
 
 
 # ------------------------------------------------------------
-# HELPERS
+# LOW-LEVEL SLIDE CLONE (THIS IS THE MAGIC)
 # ------------------------------------------------------------
-def delete_slide(prs, index):
-    slide_id = prs.slides._sldIdLst[index].rId
-    prs.part.drop_rel(slide_id)
-    del prs.slides._sldIdLst[index]
+def clone_slide(prs, slide):
+    """
+    Deep clone a slide INCLUDING design, shapes, background
+    """
+    slide_layout = slide.slide_layout
+    new_slide = prs.slides.add_slide(slide_layout)
+
+    # Remove auto-added placeholders
+    for shp in list(new_slide.shapes):
+        new_slide.shapes._spTree.remove(shp._element)
+
+    # Copy shapes XML
+    for shp in slide.shapes:
+        new_slide.shapes._spTree.insert_element_before(
+            deepcopy(shp._element), 'p:extLst'
+        )
+
+    return new_slide
 
 
-def remove_empty_placeholders(slide):
-    """Removes 'Click to add...' placeholders"""
+def remove_click_to_add(slide):
     for shape in list(slide.shapes):
         if shape.has_text_frame:
-            txt = shape.text_frame.text.strip().lower()
+            txt = shape.text_frame.text.lower().strip()
             if txt.startswith("click to add"):
                 slide.shapes._spTree.remove(shape._element)
 
 
 def update_month_year(slide):
-    """Replace any year text with current Month YYYY"""
     current = datetime.now().strftime("%B %Y")
     for shape in slide.shapes:
         if shape.has_text_frame:
@@ -46,26 +60,19 @@ def update_month_year(slide):
                 shape.text = current
 
 
-def set_title_full_width(prs, slide, text):
-    """
-    FIRST SLIDE ONLY
-    Wide white title textbox
-    """
+def set_first_slide_title(prs, slide, text):
     for shape in list(slide.shapes):
         if shape.is_placeholder:
             slide.shapes._spTree.remove(shape._element)
 
     tb = slide.shapes.add_textbox(
-        left=Inches(0.75),
-        top=Inches(2.8),
-        width=prs.slide_width - Inches(1.5),
-        height=Pt(110),
+        prs.slide_width * 0.05,
+        prs.slide_height * 0.35,
+        prs.slide_width * 0.9,
+        Pt(110),
     )
 
-    tf = tb.text_frame
-    tf.clear()
-
-    p = tf.paragraphs[0]
+    p = tb.text_frame.paragraphs[0]
     p.text = text
     p.font.size = Pt(48)
     p.font.bold = True
@@ -76,99 +83,74 @@ def set_title_full_width(prs, slide, text):
 # MAIN GENERATOR
 # ------------------------------------------------------------
 def generate_presentation_cognizant(payload):
-    """
-    Cognizant PPT generation
-    - Preview driven
-    - First & Last slide customized
-    - Content slides reuse SAMPLE (4th) slide design
-    - No images
-    """
-
     slides = payload.get("slides")
     if not slides:
         raise ValueError("No preview slides found")
 
     prs = Presentation(COGNIZANT_TEMPLATE)
 
-    # --------------------------------------------------------
-    # Capture layouts BEFORE deleting slides
-    # --------------------------------------------------------
-    title_layout = prs.slides[0].slide_layout
-    sample_content_layout = prs.slides[3].slide_layout   # ✅ 4th slide design
-    thankyou_layout = prs.slides[-1].slide_layout
+    # 🔥 Capture MASTER slides BEFORE deletion
+    title_master = prs.slides[0]
+    content_master = prs.slides[3]     # 👈 YOUR SAMPLE SLIDE
+    thankyou_master = prs.slides[-1]
 
-    # --------------------------------------------------------
-    # Delete all template slides
-    # --------------------------------------------------------
+    # Delete everything
     for i in reversed(range(len(prs.slides))):
-        delete_slide(prs, i)
+        slide_id = prs.slides._sldIdLst[i].rId
+        prs.part.drop_rel(slide_id)
+        del prs.slides._sldIdLst[i]
 
     # --------------------------------------------------------
     # 1️⃣ TITLE SLIDE
     # --------------------------------------------------------
-    title_data = slides[0]
-    title_slide = prs.slides.add_slide(title_layout)
-
-    set_title_full_width(prs, title_slide, title_data.get("title", ""))
+    title_slide = clone_slide(prs, title_master)
+    set_first_slide_title(prs, title_slide, slides[0]["title"])
     update_month_year(title_slide)
-    remove_empty_placeholders(title_slide)
+    remove_click_to_add(title_slide)
 
     # --------------------------------------------------------
-    # 2️⃣ CONTENT SLIDES (USING SAMPLE DESIGN)
+    # 2️⃣ CONTENT SLIDES (TRUE DESIGN COPY)
     # --------------------------------------------------------
     for slide_data in slides[1:]:
-        slide = prs.slides.add_slide(sample_content_layout)
+        slide = clone_slide(prs, content_master)
 
         title = slide_data.get("title", "")
-        bullets = [
-            b.strip()
-            for b in (slide_data.get("bullets") or [])
-            if isinstance(b, str) and b.strip()
-        ]
+        bullets = slide_data.get("bullets", [])
 
-        # --- Title ---
+        # Replace title
         if slide.shapes.title:
             slide.shapes.title.text = title
 
-        # --- Body (placeholder idx=1) ---
-        body = None
-        for shape in slide.placeholders:
-            if shape.is_placeholder and shape.placeholder_format.idx == 1:
-                body = shape
+        # Replace body
+        for shape in slide.shapes:
+            if shape.has_text_frame and shape != slide.shapes.title:
+                tf = shape.text_frame
+                tf.clear()
+
+                for i, b in enumerate(bullets):
+                    p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+                    p.text = b
+                    p.level = 0
+                    p.font.size = Pt(20)
                 break
 
-        if body and body.has_text_frame:
-            tf = body.text_frame
-            tf.clear()
-
-            for i, bullet in enumerate(bullets):
-                if i == 0:
-                    p = tf.paragraphs[0]
-                else:
-                    p = tf.add_paragraph()
-
-                p.text = bullet
-                p.level = 0
-                p.font.size = Pt(20)
-
-        remove_empty_placeholders(slide)
+        remove_click_to_add(slide)
 
     # --------------------------------------------------------
     # 3️⃣ THANK YOU SLIDE
     # --------------------------------------------------------
-    thank_slide = prs.slides.add_slide(thankyou_layout)
-
+    thank_slide = clone_slide(prs, thankyou_master)
     for shape in thank_slide.shapes:
         if shape.has_text_frame:
             shape.text = "Thank You"
             break
 
-    remove_empty_placeholders(thank_slide)
+    remove_click_to_add(thank_slide)
 
     # --------------------------------------------------------
     # SAVE
     # --------------------------------------------------------
     os.makedirs("generated", exist_ok=True)
-    out_path = f"generated/cognizant_{uuid.uuid4().hex[:6]}.pptx"
-    prs.save(out_path)
-    return out_path
+    out = f"generated/cognizant_{uuid.uuid4().hex[:6]}.pptx"
+    prs.save(out)
+    return out
